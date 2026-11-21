@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparare modele meteo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: shared control bars on top; 2 or 4 synchronized model panes (2x2 grid), each with its own model selector. */
+:root{
+  --bg:#0f1418; --panel:#161d23; --line:#26313a; --ink:#e6ecef; --muted:#8c9aa5; --accent:#5cc8d6; --alaro:#f0a35c; --aladin:#7cc4f0;
+  --display:"Archivo",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);display:flex;flex-direction:column}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 16px;border-bottom:1px solid var(--line)}
+h1{font:700 17px/1.2 var(--display);margin:0 8px 0 0;text-wrap:balance}
+label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+select{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:13px var(--body)}
+button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;height:32px;min-width:36px;font:15px var(--body);cursor:pointer}
+button:hover,select:hover{border-color:var(--accent)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.grp{display:flex;align-items:center;gap:6px}
+#when{font:500 14px var(--mono);min-width:190px;font-variant-numeric:tabular-nums}
+#slider{flex:1;min-width:160px;accent-color:var(--accent)}
+.tg{display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);cursor:pointer}
+main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr}
+main[data-n='1']{grid-template-columns:1fr}main[data-n='3']{grid-template-columns:1fr 1fr 1fr}main[data-n='4']{grid-template-rows:1fr 1fr}
+.pane.off{display:none}
+.ph select{padding:2px 6px;font:600 13px var(--body);max-width:150px}.ph select.rsel{font-weight:400;max-width:200px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}.seg button{border:0;border-radius:0;height:30px;padding:0 10px;font:13px var(--body)}.seg button[aria-pressed=true]{background:#24414a;color:#fff}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.ph{display:flex;align-items:baseline;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap;min-width:0}
+.ph b{font:600 14px var(--body)}
+.ph .dot{width:9px;height:9px;border-radius:50%;display:inline-block;align-self:center}
+.ph .meta{color:var(--muted);font:12px var(--mono);margin-left:auto;overflow:hidden;text-overflow:ellipsis;min-width:0}
+iframe{flex:1;border:0;width:100%;min-height:0;background:var(--bg)}
+a{color:var(--accent)}
+@media (max-width:900px){main,main[data-n]{grid-template-columns:1fr!important;grid-template-rows:none;grid-auto-rows:minmax(260px,1fr);overflow:auto}.pane{border-right:0}}
+input[type=range]{accent-color:var(--accent);width:110px}.v{font:500 12px var(--mono);min-width:38px}.hint{color:var(--muted);font-size:12px;margin-left:auto}
+#setbar{padding:6px 16px;gap:6px 16px}
+.bar.hid{display:none}
+#togBars{min-width:32px;font-size:15px;line-height:1}
+</style>
+</head>
+<body>
+<div class="bar" id="topbar">
+  <h1>Comparare modele</h1>
+  <label class="hint" style="margin:0">Rularea: <select id="rel" aria-label="Rularea modelelor"><option value="">diferite</option><option value="0">cea mai recentă</option><option value="1">anterioara (−1)</option><option value="2">−2</option><option value="3">−3</option></select></label>
+  <button id="evo" title="Aceeași hartă din ultimele 4 rulări, pentru același moment: vezi cum s-a schimbat prognoza">Evoluția prognozei</button>
+  <span class="hint" style="margin:0">Hărți:</span><div class="seg" role="group" aria-label="Câte hărți (modele) afișezi"><button data-n="1" aria-pressed="false">1</button><button data-n="2" aria-pressed="true">2</button><button data-n="3" aria-pressed="false">3</button><button data-n="4" aria-pressed="false">4</button></div>
+  <div class="grp"><label for="par">Parametru</label><select id="par"></select></div>
+  <div class="grp" id="levBox"><label for="lev">Nivel</label><select id="lev"></select></div>
+  <div class="grp" id="intBox"><label for="pint">Interval</label><select id="pint"><option value="pas">pasul modelului (automat)</option><option value="6">6 ore</option><option value="12">12 ore</option><option value="24">24 ore</option><option value="tot">total de la start</option></select></div>
+  <label class="tg"><input type="checkbox" id="syncMap" checked> Hartă sincronizată</label>
+  <label class="tg"><input type="checkbox" id="three"> 3D</label>
+</div>
+<div class="bar" id="timebar">
+  <button id="togBars" aria-label="Ascunde setările" title="Ascunde setările (ecran mare)">⯅</button>
+  <button id="prev" aria-label="Momentul anterior">‹</button>
+  <button id="play" aria-label="Pornește animația">▶</button>
+  <button id="next" aria-label="Momentul următor">›</button>
+  <div id="when">–</div>
+  <input type="range" id="slider" min="0" max="0" value="0" aria-label="Ora prognozei">
+</div>
+<div class="bar" id="setbar">
+  <label class="tg"><input type="checkbox" data-o="optIso" checked> Izobare / izohipse</label>
+  <div class="grp"><label for="c-wind">Vânt</label><select id="c-wind" data-o="windMode"><option value="flow">curenți animați</option><option value="arrows">săgeți</option><option value="none">fără</option></select></div>
+  <label class="tg"><input type="checkbox" data-o="optCities"> Valori în orașe</label>
+  <label class="tg"><input type="checkbox" data-o="optHill" checked> Relief umbrit</label>
+  <div class="grp"><label for="c-opac">Opacitate</label><input type="range" id="c-opac" data-o="opac" min="20" max="100" step="5" value="75"><b class="v" id="c-opacv">75%</b></div>
+  <div class="grp"><label for="c-bcol">Contur</label><select id="c-bcol" data-o="bcol"><option value="#111417">negru</option><option value="#ffffff">alb</option><option value="#d6e02a">galben</option><option value="#3fe05a">verde</option></select></div>
+  <div class="grp"><label for="c-basemap">Hartă</label><select id="c-basemap" data-o="basemap"><option value="dark">întunecată</option><option value="positron">luminoasă</option><option value="liberty">detaliată</option></select></div>
+  <div class="grp"><label for="c-exag">Relief 3D</label><input type="range" id="c-exag" data-o="exag" min="1" max="10" step="0.5" value="1.5"><b class="v" id="c-exagv">1.5×</b></div>
+  <span class="hint">Toate hărțile: grila și relieful ALADIN 2,3 km · Mouse = valoarea parametrului · Click dreapta = toate valorile · Click = meteogramă</span>
+</div>
+<main id="grid"></main>
+<script>
+const LOCAL=location.protocol==='file:';
+/* ---------- verifică dacă pagina publicată e mai nouă ---------- */
+const PAGEV='cmp20261121001146';
+(function(){if(location.protocol==='file:')return;
+ const chk=async()=>{try{const t=await fetch(location.href.split('#')[0].split('?')[0]+'?nc='+Date.now(),{cache:'reload'}).then(r=>r.text());
+  const m=t.match(/PAGEV='([^']+)'/);if(!m||m[1]===PAGEV)return;
+  if(!sessionStorage.getItem('reloaded_'+m[1])){sessionStorage.setItem('reloaded_'+m[1],'1');location.reload();return}
+  const d=document.createElement('div');d.style.cssText='position:fixed;right:12px;bottom:12px;z-index:99;background:#161d23;border:1px solid #5cc8d6;border-radius:8px;padding:8px 12px;font:13px system-ui;color:#e6ecef';
+  d.innerHTML='Versiune nouă · <a href="#" style="color:#5cc8d6">reîncarcă</a>';d.querySelector('a').onclick=e=>{e.preventDefault();location.reload()};document.body.appendChild(d)}catch(e){}};
+ setTimeout(chk,2500);setInterval(chk,15*60000)})();
+
+const MODELS={
+ alaro:{name:'ALARO-4',who:'ANM · 4 km → rafinat 2,3 km',col:'#f0a35c',local:'../HartiALARO4/index.html',web:'https://ionutbordeianu.github.io/harti-meteo/'},
+ aladin:{name:'ALADIN',who:'ČHMÚ · 2,3 km',col:'#7cc4f0',local:'../HartiAladin4/index.html',web:'https://ionutbordeianu.github.io/harti-aladin/'},
+ icon:{name:'ICON-EU',who:'DWD · 7 km (+126…180h global 13 km) → 2,3 km',col:'#b49cf5',local:'../HartiICON/index.html',web:'https://ionutbordeianu.github.io/harti-icon/'},
+ anm:{name:'ANM înregistrat',who:'stații + grid ANM 1 km',col:'#ffffff',local:'../HartiObservatii/index.html',web:'https://ionutbordeianu.github.io/harti-observatii/'},
+ ecmwf:{name:'ECMWF IFS',who:'ECMWF · 9 km → rafinat 2,3 km',col:'#5fd39a',local:'../HartiECMWF/index.html',web:'https://ionutbordeianu.github.io/harti-ecmwf/'}};
+const DEF=['alaro','aladin','icon','ecmwf'];
+let layout=2,sel=DEF.slice();
+try{const s=JSON.parse(localStorage.getItem('cmpcfg')||'null');if(s&&Array.isArray(s.sel)&&s.sel.length===4&&s.sel.every(k=>MODELS[k])){sel=s.sel;layout=[1,2,3,4].includes(s.layout)?s.layout:2}}catch(e){}
+const gridEl=document.getElementById('grid'),P=[];
+let rels=[0,0,0,0];try{const q=JSON.parse(localStorage.getItem('cmprels')||'null');if(Array.isArray(q)&&q.length===4)rels=q.map(x=>Math.max(0,Math.min(3,+x||0)))}catch(e){}
+const srcOf=(k,rel)=>{const m=MODELS[k];return (LOCAL?m.local+'?embed=1':m.web+'?embed=1')+(rel&&k!=='anm'?'&rel='+rel:'')+'&v='+Math.floor(Date.now()/6e4)};
+const RELOPT='<option value="0">ultima rulare</option><option value="1">rularea −1</option><option value="2">rularea −2</option><option value="3">rularea −3</option>';
+for(let n=0;n<4;n++){const sec=document.createElement('section');sec.className='pane';
+ const opts=Object.entries(MODELS).map(([k,m])=>`<option value="${k}">${m.name}</option>`).join('');
+ sec.innerHTML=`<div class="ph"><span class="dot"></span><select aria-label="Modelul din harta ${n+1}">${opts}</select><select class="rsel" aria-label="Rularea din harta ${n+1}">${RELOPT}</select><span class="who"></span><span class="meta">se încarcă…</span></div><iframe title="Harta ${n+1}"></iframe>`;
+ gridEl.appendChild(sec);
+ const p={n,sec,fr:sec.querySelector('iframe'),selEl:sec.querySelector('select'),relEl:sec.querySelector('select.rsel'),dot:sec.querySelector('.dot'),who:sec.querySelector('.who'),meta:sec.querySelector('.meta'),model:null,info:null,state:null};
+ p.selEl.onchange=()=>{sel[n]=p.selEl.value;save();load(p)};p.relEl.onchange=()=>{rels[n]=+p.relEl.value;save();load(p)};P.push(p)}
+const info={},state={};
+const fmt=new Intl.DateTimeFormat('ro-RO',{timeZone:'Europe/Bucharest',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+let times=[],ti=0,built=false,playing=null;
+const par=document.getElementById('par'),lev=document.getElementById('lev'),pint=document.getElementById('pint'),slider=document.getElementById('slider');
+const active=()=>P.filter(p=>p.n<layout);
+function save(){try{localStorage.setItem('cmpcfg',JSON.stringify({layout,sel}));localStorage.setItem('cmprels',JSON.stringify(rels))}catch(e){}}
+function load(p){const k=sel[p.n];p.model=k;p.info=null;p.state=null;const m=MODELS[k];p.selEl.value=k;p.dot.style.background=m.col;p.who.textContent=m.who;p.meta.textContent='se încarcă…';
+ p.fr.title='Harta '+m.name;p.relEl.value=String(rels[p.n]);p.relEl.style.display=k==='anm'?'none':'';p.fr.src=srcOf(k,rels[p.n]);built=false;clearTimeout(load.t);load.t=setTimeout(()=>{if(!built&&active().some(q=>q.info))build(true)},20000)}
+function setLayout(n){layout=n;gridEl.dataset.n=n;document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.n===n));
+ for(const p of P){const on=p.n<n;p.sec.classList.toggle('off',!on);if(on&&!p.model)load(p);if(!on&&p.model){p.fr.src='about:blank';p.model=null;p.info=null}}
+ save();all({type:'slim',on:slimOn||n>2});built=false;build(!active().every(p=>p.info))}
+document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>setLayout(+b.dataset.n));
+const paneOf=w=>active().find(p=>p.fr.contentWindow===w);
+const send=(p,m)=>{try{p.fr.contentWindow.postMessage(Object.assign({dst:'harti-meteo'},m),'*')}catch(e){}};
+const all=m=>active().forEach(p=>send(p,m));
+const others=(p,m)=>active().forEach(q=>{if(q!==p)send(q,m)});
+window.addEventListener('message',e=>{const m=e.data;if(!m||m.src!=='harti-meteo')return;const p=paneOf(e.source);if(!p)return;
+ if(m.type==='ready'){const isNew=!p.info;p.info=m;if(m.runs&&p.model!=='anm'){const R=m.runs;[...p.relEl.options].forEach((o,i)=>{const r=R[i];o.disabled=!r;o.textContent=r?(i?'rularea −'+i:'ultima')+' · '+r.slice(6,8)+'.'+r.slice(4,6)+' '+r.slice(8,10)+' UTC':(i?'rularea −'+i:'ultima')+' (încă nu există)'})}if(slimOn||layout>2)send(p,{type:'slim',on:true});p.meta.textContent='rularea '+m.runLabel+(m.runs&&p.model!=='anm'&&rels[p.n]>=m.runs.length?' · rularea −'+rels[p.n]+' nu există încă (istoricul se adună)':'');
+  if(built&&isNew){built=false;build(true);return}build()}
+ if(m.type==='view'&&document.getElementById('syncMap').checked)others(p,m);
+ if(m.type==='mg'||m.type==='tip'||m.type==='tiphide'||m.type==='hov'||m.type==='hovhide')others(p,m);
+ if(m.type==='state'){p.state=m;showState(p)}});
+function build(force){const act=active();if(built||(!force&&!act.every(p=>p.info)))return;const have=act.filter(p=>p.info);if(!have.length)return;built=true;
+ const keep=par.value;par.innerHTML='';lev.innerHTML='';
+ const vars=[],seen=new Map();
+ for(const p of have)for(const v of p.info.vars){if(!v)continue;if(!seen.has(v.id)){seen.set(v.id,{...v,in:new Set()});vars.push(seen.get(v.id))}seen.get(v.id).in.add(p.model)}
+ const models=[...new Set(have.map(p=>p.model))];
+ const groups={sfc:document.createElement('optgroup'),zi:document.createElement('optgroup'),ua:document.createElement('optgroup')};groups.sfc.label='La sol';groups.zi.label='Observații ANM';groups.ua.label='Altitudine';
+ for(const v of vars){const o=document.createElement('option');o.value=v.id;o.dataset.ua=v.ua?'1':'';o.dataset.acc=v.acc?'1':'';
+  const miss=models.filter(k=>k!=='anm'&&!v.in.has(k)).map(k=>MODELS[k].name);
+  o.textContent=v.lab+(miss.length?'  (lipsește: '+miss.join(', ')+')':'');(groups[v.grp]||groups.sfc).appendChild(o)}
+ par.append(groups.sfc,groups.zi,groups.ua);par.value=keep&&seen.has(keep)?keep:(seen.has('t')?'t':vars[0].id);if(models.includes('anm')&&!build.anm&&seen.has('tx')&&!['tx','tn','p24','wx','gx'].includes(par.value))par.value='tx';build.anm=models.includes('anm');
+ const levs=[...new Set([].concat(...have.map(p=>p.info.levels||[])))].sort((a,b)=>b-a);
+ for(const L of levs){const o=document.createElement('option');o.value=L;o.textContent=L+' hPa';lev.appendChild(o)}lev.value=levs.includes(850)?850:levs[0];
+ const keepT=times&&times.length?times[ti]:null;times=[...new Set([].concat(...have.map(p=>p.info.times)))].sort((a,b)=>a-b);
+ slider.max=times.length-1;const now=Date.now();ti=Math.max(0,times.findIndex(t=>t>=(keepT||now)));
+ apply();sendOpts()}
+function boxes(){const o=par.selectedOptions[0];document.getElementById('levBox').style.display=o&&o.dataset.ua?'flex':'none';document.getElementById('intBox').style.display=o&&o.dataset.acc?'flex':'none'}
+function apply(){if(!times.length)return;boxes();slider.value=ti;document.getElementById('when').textContent=fmt.format(new Date(times[ti]));
+ all({type:'set',var:par.value,lev:+lev.value,pint:pint.value,valid:times[ti]})}
+function showState(p){const st=p.state,i=p.info;if(!st||!i)return;
+ const diff=Math.round((st.valid-times[ti])/3600e3);
+ if(p.model==='anm'){const dd=new Date(Math.floor((st.valid-6*3600e3)/864e5)*864e5);p.meta.textContent='ziua '+new Intl.DateTimeFormat('ro-RO',{timeZone:'UTC',weekday:'short',day:'numeric',month:'short'}).format(dd)+(Math.abs(st.valid-times[ti])>12*3600e3?' · cea mai apropiată zi':'')+' · valori măsurate';return}
+ p.meta.textContent=fmt.format(new Date(st.valid))+' (+'+String(st.h).padStart(2,'0')+'h)'+(diff?' · cel mai apropiat':'')+' · rulare '+i.run.slice(6,8)+'.'+i.run.slice(4,6)+' '+i.run.slice(8,10)+' UTC'+(i.runs&&rels[p.n]>=i.runs.length?' · −'+rels[p.n]+' nu există încă':'')}
+par.onchange=apply;lev.onchange=apply;pint.onchange=apply;
+slider.oninput=()=>{ti=+slider.value;apply()};
+const step=d=>{if(!times.length)return;ti=(ti+d+times.length)%times.length;apply()};
+document.getElementById('prev').onclick=()=>step(-1);document.getElementById('next').onclick=()=>step(1);
+const playBtn=document.getElementById('play');
+playBtn.onclick=()=>{if(playing){clearInterval(playing);playing=null;playBtn.textContent='▶'}else{playing=setInterval(()=>step(1),1400);playBtn.textContent='❚❚'}};
+const bars=[document.getElementById('topbar'),document.getElementById('setbar')],togB=document.getElementById('togBars');
+function setSlim(on){bars.forEach(b=>b.classList.toggle('hid',on));togB.textContent=on?'⯆':'⯅';
+ togB.title=on?'Arată setările':'Ascunde setările (ecran mare)';togB.setAttribute('aria-label',togB.title);
+ try{localStorage.setItem('cmpslim',on?'1':'')}catch(e){}
+ slimOn=on;all({type:'slim',on:on||layout>2})}
+let slimOn=false;
+togB.onclick=()=>setSlim(!bars[0].classList.contains('hid'));
+try{if(localStorage.getItem('cmpslim'))setSlim(true)}catch(e){}
+const optEls=[...document.querySelectorAll('[data-o]')];
+function sendOpts(){const o={};for(const el of optEls)o[el.dataset.o]=el.type==='checkbox'?el.checked:el.value;all({type:'opt',o})}
+function optLabels(){document.getElementById('c-opacv').textContent=document.getElementById('c-opac').value+'%';document.getElementById('c-exagv').textContent=(+document.getElementById('c-exag').value)+'×'}
+for(const el of optEls){el.addEventListener(el.type==='range'?'input':'change',()=>{optLabels();sendOpts()})}
+document.getElementById('three').onchange=e=>all({type:'mode3d',on:e.target.checked});
+{const re=document.getElementById('rel');re.value=rels.every(x=>x===rels[0])?String(rels[0]):'';re.onchange=()=>{if(re.value==='')return;rels=rels.map(()=>+re.value);save();active().forEach(load)};
+ document.getElementById('evo').onclick=()=>{let k=sel[0]==='anm'?(sel.find(x=>x!=='anm')||'icon'):sel[0];sel=[k,k,k,k];rels=[0,1,2,3];re.value='';save();P.forEach(p=>{p.model=null});setLayout(4)}}
+setLayout(layout);
+document.addEventListener('keydown',e=>{if(/INPUT|SELECT/.test(e.target.tagName))return;if(e.key==='ArrowRight')step(1);else if(e.key==='ArrowLeft')step(-1);else if(e.key===' '){e.preventDefault();playBtn.click()}});
+</script>
+</body>
+</html>
